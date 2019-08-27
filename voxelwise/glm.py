@@ -177,16 +177,16 @@ class LSS(BaseGLM):
                  hrf_model='spm + derivative', drift_model=None, t_r=2,
                  n_jobs=-1):
         super().__init__(self, imgs, events, name, regressors=None, mask=mask,
-                 hrf_model='spm + derivative', drift_model=None, t_r=2,
-                 n_jobs=-1)
+                         hrf_model='spm + derivative', drift_model=None, t_r=2,
+                         n_jobs=-1)
 
         # one model per trial (many models per image)
         self.models = []
         for img, event, reg in zip(self.imgs, self.events, self.regressors):
 
             self.models += _lss_generator(img, event, reg, t_r=self.t_r,
-                                           hrf_model=self.hrf_model,
-                                           drift_model=self.drift_model)
+                                          hrf_model=self.hrf_model,
+                                          drift_model=self.drift_model)
 
 
     def transform(self, param_type='beta'):
@@ -220,8 +220,8 @@ class LSA(BaseGLM):
                  hrf_model='spm + derivative', drift_model=None, t_r=2,
                  n_jobs=-1):
         super().__init__(self, imgs, events, name, regressors=None, mask=mask,
-                 hrf_model='spm + derivative', drift_model=None, t_r=2,
-                 n_jobs=-1)
+                         hrf_model='spm + derivative', drift_model=None, t_r=2,
+                         n_jobs=-1)
 
         # one model per imge
         self.models = []

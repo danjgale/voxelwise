@@ -1,6 +1,6 @@
-from setuptools import setup, find_packages
 import re
 import io
+from setuptools import setup, find_packages
 
 __version__ = re.search(
     r'__version__\s*=\s*[\'"]([^\'"]*)[\'"]',

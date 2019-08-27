@@ -207,11 +207,11 @@ class LSS(BaseGLM):
         return concat_imgs(param_maps), param_index
 
 
-def _rename_lsa_events(df):
+def _rename_lsa_trial_types(df):
     """Combine event name and onset for a unique event label"""
     df = df.copy()
-    unique_events = df['event'] + '_' + df['onset']
-    df['event'] = unique_events
+    unique_labels = df['trial_type'] + '_' + df['onset']
+    df['trial_type'] = unique_labels
     return df
 
 
@@ -230,12 +230,10 @@ class LSA(BaseGLM):
             n_scans = img.shape[3]
             frame_times = np.arange(n_scans) * self.t_r
 
-            event = _rename_lsa_events(event)
+            event = _rename_lsa_trial_types(event)
             model = Model(img, event, reg, mask)
             model.add_design_matrix(frame_times, self.hrf_model,
                                     self.drift_model, self.period_cut)
-            # create new attribute for LSA transform method
-            model.n_trials = event.shape[0]
             self.models.append(model)
 
 
@@ -246,11 +244,55 @@ class LSA(BaseGLM):
         param_maps = []
         list_ = []
         for model in self.models:
-            # iterate only through events
-            trial_reg_names = model.events['event'].tolist()
+            # iterate only through trial_types
+            trial_reg_names = model.events['trial_types'].tolist()
             if len(np.unique(trial_reg_names)) != len(trial_reg_names):
                 raise Exception('Trial regressor names are not unique')
 
+            for ev in trial_reg_names:
+                reg = model.design.columns.index(ev)
+                param_maps.append(model.extract_params(param_type,
+                                                       contrast_ix=reg))
+                trial_type, onset = model.design.columns[reg].split('_')
+                list_.append({'img_name': model.img.get_filename(),
+                              'trial_type': trial_type, 'onset': onset})
+
+        param_index = pd.DataFrame(list_)
+
+        return concat_imgs(param_maps), param_index
+
+
+class LSU(BaseGLM):
+    def __init__(self, imgs, events, name, regressors=None, mask=None,
+                 hrf_model='spm + derivative', drift_model=None, t_r=2,
+                 n_jobs=-1):
+        super().__init__(self, imgs, events, name, regressors=None, mask=mask,
+                         hrf_model='spm + derivative', drift_model=None, t_r=2,
+                         n_jobs=-1)
+
+        # one model per imge
+        self.models = []
+        for img, event, reg in zip(self.imgs, self.events, self.regressors):
+
+            n_scans = img.shape[3]
+            frame_times = np.arange(n_scans) * self.t_r
+
+            # event trial_types are kept the same
+            model = Model(img, event, reg, mask)
+            model.add_design_matrix(frame_times, self.hrf_model,
+                                    self.drift_model, self.period_cut)
+            self.models.append(model)
+
+
+    def transform(self, param_type='beta'):
+        if not self._fit_status:
+            print('LSU not yet fit. Please run .fit() first')
+
+        param_maps = []
+        list_ = []
+        for model in self.models:
+            # iterate only through unique trial_types
+            trial_reg_names = np.unique(model.events['trial_types'])
             for ev in trial_reg_names:
                 reg = model.design.columns.index(ev)
                 param_maps.append(model.extract_params(param_type,

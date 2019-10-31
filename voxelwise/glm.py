@@ -10,6 +10,8 @@ from nilearn._utils import check_niimg
 from nistats.design_matrix import make_first_level_design_matrix
 from nistats.first_level_model import FirstLevelModel
 
+def _check_file(x):
+    return pd.read_csv(x, sep='\t') if isinstance(x, str) else x
 
 class Model(object):
     def __init__(self, img, events, regressors=None, mask=None,
@@ -44,13 +46,16 @@ class Model(object):
         self.img = check_niimg(img)
         self.mask = mask        
         
-        try:
-            self.regressors = regressors.values
-        except AttributeError:
-            self.regressors = regressors
+        regressors = _check_file(regressors)          
         
-        self.events = (pd.read_csv(events, sep='\t') 
-                       if isinstance(events, str) else events)
+        if regressors is not None:
+            self.regressors = regressors.values
+            self.reg_names = regressors.columns.values
+        else:
+            self.regressors = regressors
+            self.reg_names = None
+
+        self.events = _check_file(events)
 
         self.event_index = event_index
         if self.event_index is not None:
@@ -184,30 +189,34 @@ def _compute_frame_times(img, t_r):
     return np.arange(n_scans) * t_r
 
 
-def _lss_generator(img, event, regressors, mask=None, t_r=2,
+def _lss_generator(img, event, regressors, mask=None, t_r=2, high_pass=.01,
                    hrf_model='spm + derivative', drift_model=None):
     """Generate a new first level model for each event of a single image"""
 
     frame_times = _compute_frame_times(img, t_r)
 
-    for ix in event.index.values():
+    if isinstance(event, str):
+        event = pd.read_csv(event, sep='\t')
+
+    for ix in event.index.values:
         model = Model(img, event, regressors, mask, ix)
-        model.add_design_matrix(frame_times, hrf_model, t_r, drift_model)
+        model.add_design_matrix(frame_times, hrf_model, drift_model, high_pass)
         yield model
 
 
 class LSS(BaseGLM):
-    def __init__(self, imgs, events, regressors=None, mask=None,
+    def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
                  hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
-                 t_r=2, n_jobs=-1):
-        super().__init__(imgs, events, regressors, mask,
-                         hrf_model, high_pass, drift_model, t_r, n_jobs)
+                 n_jobs=-1):
+        super().__init__(imgs, events, regressors, mask, hrf_model, high_pass, 
+                         drift_model, t_r, n_jobs)
 
         # one model per trial (many models per image)
         self.models = []
         for img, event, reg in zip(self.imgs, self.events, self.regressors):
 
             self.models += _lss_generator(img, event, reg, t_r=self.t_r,
+                                          high_pass=self.high_pass, 
                                           hrf_model=self.hrf_model,
                                           drift_model=self.drift_model)
 
@@ -222,7 +231,7 @@ class LSS(BaseGLM):
             param_maps.append(model.extract_params(param_type))
             # get trial info for the map
             event = model.events.loc[model.event_index]
-            list_.append({'img_name': model.img.get_filename(),
+            list_.append({'src_img': model.img.get_filename(),
                           'trial_type': event['trial_type'],
                           'onset': event['onset']})
         param_index = pd.DataFrame(list_)
@@ -243,17 +252,15 @@ def _rename_lsa_trial_types(df):
 
 
 class LSA(BaseGLM):
-    def __init__(self, imgs, events, regressors=None, mask=None,
+    def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
                  hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
-                 t_r=2, n_jobs=-1):
-        super().__init__(imgs, events, regressors, mask,
-                         hrf_model, high_pass, drift_model, t_r, n_jobs)
+                 n_jobs=-1):
+        super().__init__(imgs, events, regressors, mask, hrf_model, high_pass, 
+                         drift_model, t_r, n_jobs)
 
         # one model per image
         self.models = []
-        print(self.imgs)
         for img, event, reg in zip(self.imgs, self.events, self.regressors):
-            print('\n\n\nHERE:', img)
 
             frame_times = _compute_frame_times(img, self.t_r)
             event = _rename_lsa_trial_types(event)
@@ -281,7 +288,7 @@ class LSA(BaseGLM):
                 param_maps.append(model.extract_params(param_type,
                                                        contrast_ix=reg))
                 trial_type, onset = model.design.columns[reg].split('_')
-                list_.append({'img_name': model.img.get_filename(),
+                list_.append({'src_img': model.img.get_filename(),
                               'trial_type': trial_type, 'onset': onset})
 
         param_index = pd.DataFrame(list_)
@@ -290,11 +297,11 @@ class LSA(BaseGLM):
 
 
 class LSU(BaseGLM):
-    def __init__(self, imgs, events, regressors=None, mask=None,
+    def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
                  hrf_model='spm + derivative', high_pass=.01, drift_model=None,
-                 t_r=2, n_jobs=-1):
-        super().__init__(imgs, events, regressors, mask,
-                         hrf_model, high_pass, drift_model, t_r, n_jobs)
+                 n_jobs=-1):
+        super().__init__(imgs, events, regressors, mask, hrf_model, high_pass, 
+                         drift_model, t_r, n_jobs)
 
         # one model per imge
         self.models = []
@@ -316,15 +323,15 @@ class LSU(BaseGLM):
         param_maps = []
         list_ = []
         for model in self.models:
+
             # iterate only through unique trial_types
-            trial_reg_names = np.unique(model.events['trial_types'])
+            trial_reg_names = np.unique(model.events['trial_type'])
             for ev in trial_reg_names:
-                reg = model.design.columns.index(ev)
+                reg = model.design.columns.get_loc(ev)
                 param_maps.append(model.extract_params(param_type,
                                                        contrast_ix=reg))
-                trial_type, onset = model.design.columns[reg].split('_')
-                list_.append({'img_name': model.img.get_filename(),
-                              'trial_type': trial_type, 'onset': onset})
+                list_.append({'src_img': model.img.get_filename(),
+                              'trial_type': ev})
 
         param_index = pd.DataFrame(list_)
 

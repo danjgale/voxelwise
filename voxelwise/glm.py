@@ -24,50 +24,53 @@ class Model(object):
 
         Parameters
         ----------
-        img : [type]
-            [description]
-        events : [type]
-            [description]
-        regressors : [type], optional
-            [description], by default None
-        mask : [type], optional
-            [description], by default None
-        event_index : [type], optional
-            [description], by default None
+        img : niimg-like
+            One 4D functional image.
+        events : pandas.core.DataFrame
+            DataFrame with 'events', 'onsets' and 'trial_type' columns. Other
+            columns can be included as parametric modulators. 
+        regressors : pandas.core.DataFrame
+            DataFrame with shape (number of volumes/timepoints in img, 
+            number of regressors). Each column is a separate regressor. 
+        mask : niimg-like
+            Mask to restrict analysis, by default None which will compute
+            a whole-brain mask. 
+        event_index : int, optional
+            Index of single event in `events`. All other events will be 
+            labelled as 'other'. This is to isolate a single event for LSS
+            modelling.  
         """
 
-        if isinstance(img, list) & len(img) > 1:
-            raise ValueError('Model does not accept lists with length > 1')
-        self.img = img
-
-        if isinstance(regressors, list) & len(regressors) > 1:
-            raise ValueError('Model does not accept lists with length > 1')
-        self.regressors = regressors
-
-        if isinstance(mask, list) & len(mask) > 1:
-            raise ValueError('Model does not accept lists with length > 1')
-        self.mask = mask
+        self.img = check_niimg(img)
+        self.mask = mask        
+        
+        try:
+            self.regressors = regressors.values
+        except AttributeError:
+            self.regressors = regressors
+        
+        self.events = (pd.read_csv(events, sep='\t') 
+                       if isinstance(events, str) else events)
 
         self.event_index = event_index
         if self.event_index is not None:
             ev = events.copy()
             ev.loc[~ev.index.isin([event_index]), 'trial_type'] = 'other'
             self.events = ev
-        else:
-            self.events = events
 
-        self.glm = FirstLevelModel(mask=self.mask)
+        self.glm = FirstLevelModel(mask_img=mask)
         self.design = None
 
 
     def add_design_matrix(self, frame_times, hrf_model, drift_model=None,
-                          period_cut=128):
+                          high_pass=.01):
         self.design = make_first_level_design_matrix(
             frame_times=frame_times,
             events=self.events,
             hrf_model=hrf_model,
             drift_model=drift_model,
-            period_cut=period_cut
+            high_pass=high_pass, 
+            add_regs=self.regressors
         )
         return self
 
@@ -88,26 +91,42 @@ class Model(object):
                                                   output_type='effect_size')
             reg_sd = np.std(design.iloc[:, contrast_ix])
             param_img = math_img("img * {}".format(reg_sd), img=param_img)
+        
+        elif param_type == 't':
+            param_img = self.glm.compute_contrast(contrast, stat_type='t',
+                                                  output_type='stat')
         else:
             param_img = self.glm.compute_contrast(contrast,
                                                   output_type=param_type)
         return param_img
 
 
-class BaseGLM(object):
-    def __init__(self, imgs, events, name, regressors=None, mask=None,
-                 hrf_model='spm + derivative', drift_model=None, t_r=2,
-                 period_cut=128, n_jobs=1):
+def _check_list(x, duplicate=None):
+    x = x if isinstance(x, list) else [x]
+    if duplicate is not None:
+        return x * duplicate
+    else:
+        return x
 
-        self.imgs = check_niimg(imgs)
-        self.events = events
-        self.name = name
-        self.regressors = regressors
+
+class BaseGLM(object):
+    def __init__(self, imgs, events, regressors=None, mask=None,
+                 hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
+                 t_r=2, n_jobs=1):
+
+        self.imgs = _check_list(imgs)
+        self.events = _check_list(events)
+
+        if regressors is None:
+            self.regressors = _check_list(regressors, duplicate=len(imgs))
+        else:
+            self.regressors = _check_list(regressors)
+        
         self.mask = mask
         self.hrf_model = hrf_model
+        self.high_pass = high_pass
         self.drift_model = drift_model
         self.t_r = t_r
-        self.period_cut = period_cut
         self.n_jobs = n_jobs
         self._fit_status = False
 
@@ -123,7 +142,7 @@ class BaseGLM(object):
             print('Fitting event {} for {}'.format(model.event_index,
                                                    model.img.get_filename()))
         else:
-            print('Fitting {}'.format(model.img.get_fname()))
+            print('Fitting {}'.format(model.img.get_filename()))
 
         model.fit()
         return model
@@ -159,12 +178,17 @@ class BaseGLM(object):
         return self.transform()
 
 
+def _compute_frame_times(img, t_r):
+    img = check_niimg(img)
+    n_scans = img.shape[3]
+    return np.arange(n_scans) * t_r
+
+
 def _lss_generator(img, event, regressors, mask=None, t_r=2,
                    hrf_model='spm + derivative', drift_model=None):
     """Generate a new first level model for each event of a single image"""
 
-    n_scans = img.shape[3]
-    frame_times = np.arange(n_scans) * t_r
+    frame_times = _compute_frame_times(img, t_r)
 
     for ix in event.index.values():
         model = Model(img, event, regressors, mask, ix)
@@ -173,12 +197,11 @@ def _lss_generator(img, event, regressors, mask=None, t_r=2,
 
 
 class LSS(BaseGLM):
-    def __init__(self, imgs, events, name, regressors=None, mask=None,
-                 hrf_model='spm + derivative', drift_model=None, t_r=2,
-                 n_jobs=-1):
-        super().__init__(self, imgs, events, name, regressors=None, mask=mask,
-                         hrf_model='spm + derivative', drift_model=None, t_r=2,
-                         n_jobs=-1)
+    def __init__(self, imgs, events, regressors=None, mask=None,
+                 hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
+                 t_r=2, n_jobs=-1):
+        super().__init__(imgs, events, regressors, mask,
+                         hrf_model, high_pass, drift_model, t_r, n_jobs)
 
         # one model per trial (many models per image)
         self.models = []
@@ -209,31 +232,35 @@ class LSS(BaseGLM):
 
 def _rename_lsa_trial_types(df):
     """Combine event name and onset for a unique event label"""
+
+    if isinstance(df, str):
+        df = pd.read_csv(df, sep='\t')
+
     df = df.copy()
-    unique_labels = df['trial_type'] + '_' + df['onset']
+    unique_labels = df['trial_type'] + '_' + df['onset'].round(2).astype(str)
     df['trial_type'] = unique_labels
     return df
 
 
 class LSA(BaseGLM):
-    def __init__(self, imgs, events, name, regressors=None, mask=None,
-                 hrf_model='spm + derivative', drift_model=None, t_r=2,
-                 n_jobs=-1):
-        super().__init__(self, imgs, events, name, regressors=None, mask=mask,
-                         hrf_model='spm + derivative', drift_model=None, t_r=2,
-                         n_jobs=-1)
+    def __init__(self, imgs, events, regressors=None, mask=None,
+                 hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
+                 t_r=2, n_jobs=-1):
+        super().__init__(imgs, events, regressors, mask,
+                         hrf_model, high_pass, drift_model, t_r, n_jobs)
 
-        # one model per imge
+        # one model per image
         self.models = []
+        print(self.imgs)
         for img, event, reg in zip(self.imgs, self.events, self.regressors):
+            print('\n\n\nHERE:', img)
 
-            n_scans = img.shape[3]
-            frame_times = np.arange(n_scans) * self.t_r
-
+            frame_times = _compute_frame_times(img, self.t_r)
             event = _rename_lsa_trial_types(event)
-            model = Model(img, event, reg, mask)
+
+            model = Model(img, event, reg, self.mask)
             model.add_design_matrix(frame_times, self.hrf_model,
-                                    self.drift_model, self.period_cut)
+                                    self.drift_model, self.high_pass)
             self.models.append(model)
 
 
@@ -245,12 +272,12 @@ class LSA(BaseGLM):
         list_ = []
         for model in self.models:
             # iterate only through trial_types
-            trial_reg_names = model.events['trial_types'].tolist()
+            trial_reg_names = model.events['trial_type'].tolist()
             if len(np.unique(trial_reg_names)) != len(trial_reg_names):
                 raise Exception('Trial regressor names are not unique')
 
             for ev in trial_reg_names:
-                reg = model.design.columns.index(ev)
+                reg = model.design.columns.get_loc(ev)
                 param_maps.append(model.extract_params(param_type,
                                                        contrast_ix=reg))
                 trial_type, onset = model.design.columns[reg].split('_')
@@ -263,24 +290,22 @@ class LSA(BaseGLM):
 
 
 class LSU(BaseGLM):
-    def __init__(self, imgs, events, name, regressors=None, mask=None,
-                 hrf_model='spm + derivative', drift_model=None, t_r=2,
-                 n_jobs=-1):
-        super().__init__(self, imgs, events, name, regressors=None, mask=mask,
-                         hrf_model='spm + derivative', drift_model=None, t_r=2,
-                         n_jobs=-1)
+    def __init__(self, imgs, events, regressors=None, mask=None,
+                 hrf_model='spm + derivative', high_pass=.01, drift_model=None,
+                 t_r=2, n_jobs=-1):
+        super().__init__(imgs, events, regressors, mask,
+                         hrf_model, high_pass, drift_model, t_r, n_jobs)
 
         # one model per imge
         self.models = []
         for img, event, reg in zip(self.imgs, self.events, self.regressors):
 
-            n_scans = img.shape[3]
-            frame_times = np.arange(n_scans) * self.t_r
+            frame_times = _compute_frame_times(img, self.t_r)
 
             # event trial_types are kept the same
             model = Model(img, event, reg, mask)
             model.add_design_matrix(frame_times, self.hrf_model,
-                                    self.drift_model, self.period_cut)
+                                    self.drift_model, self.high_pass)
             self.models.append(model)
 
 

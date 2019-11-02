@@ -14,8 +14,9 @@ def _check_file(x):
     return pd.read_csv(x, sep='\t') if isinstance(x, str) else x
 
 class Model(object):
-    def __init__(self, img, events, regressors=None, mask=None,
-                 event_index=None):
+    def __init__(self, img, events, t_r, regressors=None, mask=None, 
+                 standardize=False, signal_scaling=False, event_index=None,
+                 first_level_kws=None):
         """Class for building a first-level model for the purpose of single-
         trial modelling.
 
@@ -63,14 +64,24 @@ class Model(object):
             ev.loc[~ev.index.isin([event_index]), 'trial_type'] = 'other'
             self.events = ev
 
-        self.glm = FirstLevelModel(mask_img=mask)
+        self.t_r = t_r
+        self.frame_times = _compute_frame_times(self.img, self.t_r)
+
+        if first_level_kws is not None:
+            self.glm = FirstLevelModel(t_r=self.t_r, mask_img=mask, 
+                                    standardize=standardize, 
+                                    signal_scaling=signal_scaling, 
+                                    **first_level_kws)
+        else:
+            self.glm = FirstLevelModel(t_r=self.t_r, mask_img=mask, 
+                                    standardize=standardize, 
+                                    signal_scaling=signal_scaling)
         self.design = None
 
 
-    def add_design_matrix(self, frame_times, hrf_model, drift_model=None,
-                          high_pass=.01):
+    def add_design_matrix(self, hrf_model, drift_model=None, high_pass=.01):
         self.design = make_first_level_design_matrix(
-            frame_times=frame_times,
+            frame_times=self.frame_times,
             events=self.events,
             hrf_model=hrf_model,
             drift_model=drift_model,
@@ -116,8 +127,9 @@ def _check_list(x, duplicate=None):
 
 class BaseGLM(object):
     def __init__(self, imgs, events, regressors=None, mask=None,
+                 standardize=False, signal_scaling=False, 
                  hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
-                 t_r=2, n_jobs=1):
+                 t_r=2, n_jobs=1, first_level_kws=None):
 
         self.imgs = _check_list(imgs)
         self.events = _check_list(events)
@@ -128,11 +140,15 @@ class BaseGLM(object):
             self.regressors = _check_list(regressors)
         
         self.mask = mask
+        self.standardize = standardize
+        self.signal_scaling = signal_scaling
         self.hrf_model = hrf_model
         self.high_pass = high_pass
         self.drift_model = drift_model
         self.t_r = t_r
         self.n_jobs = n_jobs
+        self.first_level_kws = first_level_kws
+        
         self._fit_status = False
 
         # to be set in child classes
@@ -143,11 +159,15 @@ class BaseGLM(object):
     @staticmethod
     def fit_glm(model):
 
-        if model.event_index is not None:
-            print('Fitting event {} for {}'.format(model.event_index,
-                                                   model.img.get_filename()))
+        if model.img.get_filename() is None:
+            img_name = 'img'
         else:
-            print('Fitting {}'.format(model.img.get_filename()))
+            img_name = model.img.get_filename()
+
+        if model.event_index is not None:
+            print('Fitting event {} for {}'.format(model.event_index, img_name))
+        else:
+            print('Fitting {}'.format(img_name))
 
         model.fit()
         return model
@@ -189,36 +209,42 @@ def _compute_frame_times(img, t_r):
     return np.arange(n_scans) * t_r
 
 
-def _lss_generator(img, event, regressors, mask=None, t_r=2, high_pass=.01,
-                   hrf_model='spm + derivative', drift_model=None):
+def _lss_generator(img, event, regressors, mask=None, standardize=False, 
+                   signal_scaling=False, t_r=2, high_pass=.01,
+                   hrf_model='spm + derivative', drift_model=None, 
+                   first_level_kws=None):
     """Generate a new first level model for each event of a single image"""
-
-    frame_times = _compute_frame_times(img, t_r)
 
     if isinstance(event, str):
         event = pd.read_csv(event, sep='\t')
 
     for ix in event.index.values:
-        model = Model(img, event, regressors, mask, ix)
-        model.add_design_matrix(frame_times, hrf_model, drift_model, high_pass)
+        model = Model(img, event, t_r, regressors, mask, standardize, 
+                      signal_scaling, ix, first_level_kws)
+        model.add_design_matrix(hrf_model, drift_model, high_pass)
         yield model
 
 
 class LSS(BaseGLM):
     def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
+                 standardize=False, signal_scaling=False, 
                  hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
-                 n_jobs=-1):
-        super().__init__(imgs, events, regressors, mask, hrf_model, high_pass, 
-                         drift_model, t_r, n_jobs)
+                 n_jobs=-1, first_level_kws=None):
+        super().__init__(imgs, events, regressors, mask, standardize, 
+                         signal_scaling, hrf_model, high_pass, drift_model, 
+                         t_r, n_jobs, first_level_kws)
 
         # one model per trial (many models per image)
         self.models = []
         for img, event, reg in zip(self.imgs, self.events, self.regressors):
 
-            self.models += _lss_generator(img, event, reg, t_r=self.t_r,
-                                          high_pass=self.high_pass, 
+            self.models += _lss_generator(img, event, reg, mask=self.mask, 
+                                          standardize=self.standardize, 
+                                          signal_scaling=self.signal_scaling, 
+                                          t_r=self.t_r, high_pass=self.high_pass, 
                                           hrf_model=self.hrf_model,
-                                          drift_model=self.drift_model)
+                                          drift_model=self.drift_model, 
+                                          first_level_kws=self.first_level_kws)
 
 
     def transform(self, param_type='beta'):
@@ -253,21 +279,24 @@ def _rename_lsa_trial_types(df):
 
 class LSA(BaseGLM):
     def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
+                 standardize=False, signal_scaling=False,
                  hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
-                 n_jobs=-1):
-        super().__init__(imgs, events, regressors, mask, hrf_model, high_pass, 
-                         drift_model, t_r, n_jobs)
+                 n_jobs=-1, first_level_kws=None):
+        super().__init__(imgs, events, regressors, mask, standardize, 
+                         signal_scaling, hrf_model, high_pass, drift_model, 
+                         t_r, n_jobs, first_level_kws)
 
         # one model per image
         self.models = []
         for img, event, reg in zip(self.imgs, self.events, self.regressors):
 
-            frame_times = _compute_frame_times(img, self.t_r)
             event = _rename_lsa_trial_types(event)
 
-            model = Model(img, event, reg, self.mask)
-            model.add_design_matrix(frame_times, self.hrf_model,
-                                    self.drift_model, self.high_pass)
+            model = Model(img, event, self.t_r, reg, self.mask, 
+                          self.standardize, self.signal_scaling, 
+                          first_level_kws=self.first_level_kws)
+            model.add_design_matrix(self.hrf_model, self.drift_model, 
+                                    self.high_pass)
             self.models.append(model)
 
 
@@ -298,21 +327,23 @@ class LSA(BaseGLM):
 
 class LSU(BaseGLM):
     def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
-                 hrf_model='spm + derivative', high_pass=.01, drift_model=None,
-                 n_jobs=-1):
-        super().__init__(imgs, events, regressors, mask, hrf_model, high_pass, 
-                         drift_model, t_r, n_jobs)
+                 standardize=False, signal_scaling=False,
+                 hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
+                 n_jobs=-1, first_level_kws=None):
+        super().__init__(imgs, events, regressors, mask, standardize, 
+                         signal_scaling, hrf_model, high_pass, drift_model, 
+                         t_r, n_jobs, first_level_kws)
 
         # one model per imge
         self.models = []
         for img, event, reg in zip(self.imgs, self.events, self.regressors):
 
-            frame_times = _compute_frame_times(img, self.t_r)
-
             # event trial_types are kept the same
-            model = Model(img, event, reg, mask)
-            model.add_design_matrix(frame_times, self.hrf_model,
-                                    self.drift_model, self.high_pass)
+            model = Model(img, event, self.t_r, reg, self.mask, 
+                          self.standardize, self.signal_scaling, 
+                          first_level_kws=self.first_level_kws)
+            model.add_design_matrix(self.hrf_model, self.drift_model, 
+                                    self.high_pass)
             self.models.append(model)
 
 

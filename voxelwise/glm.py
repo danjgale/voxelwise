@@ -175,6 +175,12 @@ class BaseGLM(object):
 
     def fit(self):
 
+        if self.n_jobs == 1:
+            print('Fitting {} GLMs serially'.format(len(self.models)))
+            self.models = [self.fit_glm(x) for x in self.models]
+            self._fit_status = True
+            return self
+
         if self.n_jobs == -1:
             self.n_jobs = multiprocessing.cpu_count()
 
@@ -249,7 +255,7 @@ class LSS(BaseGLM):
 
     def transform(self, param_type='beta'):
         if not self._fit_status:
-            print('LSS not yet fit. Please run .fit() first')
+            raise NotImplementedError('LSS not yet fit. Please run .fit() first')
 
         param_maps = []
         list_ = []
@@ -272,7 +278,7 @@ def _rename_lsa_trial_types(df):
         df = pd.read_csv(df, sep='\t')
 
     df = df.copy()
-    unique_labels = df['trial_type'] + '_' + df['onset'].round(2).astype(str)
+    unique_labels = df['trial_type'] + '___' + df['onset'].round(2).astype(str)
     df['trial_type'] = unique_labels
     return df
 
@@ -302,7 +308,7 @@ class LSA(BaseGLM):
 
     def transform(self, param_type='beta'):
         if not self._fit_status:
-            print('LSA not yet fit. Please run .fit() first')
+            raise NotImplementedError('LSA not yet fit. Please run .fit() first')
 
         param_maps = []
         list_ = []
@@ -316,7 +322,7 @@ class LSA(BaseGLM):
                 reg = model.design.columns.get_loc(ev)
                 param_maps.append(model.extract_params(param_type,
                                                        contrast_ix=reg))
-                trial_type, onset = model.design.columns[reg].split('_')
+                trial_type, onset = model.design.columns[reg].split('___')
                 list_.append({'src_img': model.img.get_filename(),
                               'trial_type': trial_type, 'onset': onset})
 

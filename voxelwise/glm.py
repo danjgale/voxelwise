@@ -13,9 +13,16 @@ from nistats.first_level_model import FirstLevelModel
 def _check_file(x):
     return pd.read_csv(x, sep='\t') if isinstance(x, str) else x
 
+
+def _compute_frame_times(img, t_r):
+    img = check_niimg(img)
+    n_scans = img.shape[3]
+    return np.arange(n_scans) * t_r
+
+
 class Model(object):
     def __init__(self, img, events, t_r, regressors=None, mask=None, 
-                 standardize=False, signal_scaling=False, event_index=None,
+                 standardize=False, signal_scaling=0, event_index=None,
                  first_level_kws=None):
         """Class for building a first-level model for the purpose of single-
         trial modelling.
@@ -127,7 +134,7 @@ def _check_list(x, duplicate=None):
 
 class BaseGLM(object):
     def __init__(self, imgs, events, regressors=None, mask=None,
-                 standardize=False, signal_scaling=False, 
+                 standardize=False, signal_scaling=0, 
                  hrf_model='spm + derivative', high_pass=.01, drift_model='cosine', 
                  t_r=2, n_jobs=1, first_level_kws=None):
 
@@ -198,7 +205,7 @@ class BaseGLM(object):
         return self
 
 
-    def transform(self, param_type='beta'):
+    def transform(self, param_type='z_score'):
         if not self._fit_status:
             print('BaseGLM not yet fit. Please run .fit() first')
         return self
@@ -209,14 +216,8 @@ class BaseGLM(object):
         return self.transform()
 
 
-def _compute_frame_times(img, t_r):
-    img = check_niimg(img)
-    n_scans = img.shape[3]
-    return np.arange(n_scans) * t_r
-
-
 def _lss_generator(img, event, regressors, mask=None, standardize=False, 
-                   signal_scaling=False, t_r=2, high_pass=.01,
+                   signal_scaling=0, t_r=2, high_pass=.01,
                    hrf_model='spm + derivative', drift_model='cosine', 
                    first_level_kws=None):
     """Generate a new first level model for each event of a single image"""
@@ -233,7 +234,7 @@ def _lss_generator(img, event, regressors, mask=None, standardize=False,
 
 class LSS(BaseGLM):
     def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
-                 standardize=False, signal_scaling=False, 
+                 standardize=False, signal_scaling=0, 
                  hrf_model='spm + derivative', high_pass=.01, drift_model='cosine', 
                  n_jobs=-1, first_level_kws=None):
         super().__init__(imgs, events, regressors, mask, standardize, 
@@ -253,7 +254,7 @@ class LSS(BaseGLM):
                                           first_level_kws=self.first_level_kws)
 
 
-    def transform(self, param_type='beta'):
+    def transform(self, param_type='z_score'):
         if not self._fit_status:
             raise NotImplementedError('LSS not yet fit. Please run .fit() first')
 
@@ -285,7 +286,7 @@ def _rename_lsa_trial_types(df):
 
 class LSA(BaseGLM):
     def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
-                 standardize=False, signal_scaling=False,
+                 standardize=False, signal_scaling=0,
                  hrf_model='spm + derivative', high_pass=.01, drift_model='cosine', 
                  n_jobs=-1, first_level_kws=None):
         super().__init__(imgs, events, regressors, mask, standardize, 
@@ -306,7 +307,7 @@ class LSA(BaseGLM):
             self.models.append(model)
 
 
-    def transform(self, param_type='beta'):
+    def transform(self, param_type='z_score'):
         if not self._fit_status:
             raise NotImplementedError('LSA not yet fit. Please run .fit() first')
 
@@ -333,7 +334,7 @@ class LSA(BaseGLM):
 
 class LSU(BaseGLM):
     def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
-                 standardize=False, signal_scaling=False,
+                 standardize=False, signal_scaling=0,
                  hrf_model='spm + derivative', high_pass=.01, drift_model='cosine', 
                  n_jobs=-1, first_level_kws=None):
         super().__init__(imgs, events, regressors, mask, standardize, 
@@ -353,7 +354,7 @@ class LSU(BaseGLM):
             self.models.append(model)
 
 
-    def transform(self, param_type='beta'):
+    def transform(self, param_type='z_score'):
         if not self._fit_status:
             print('LSU not yet fit. Please run .fit() first')
 

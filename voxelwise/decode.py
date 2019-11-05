@@ -8,11 +8,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import (StandardScaler, Normalizer, MinMaxScaler,
                                    minmax_scale)
 from sklearn.model_selection import (cross_val_score, LeaveOneGroupOut,
-                                     permutation_test_score)
+                                     permutation_test_score, LeaveOneOut, 
+                                     KFold)
 
 
 class Decode(object):
-    def __init__(self, model, X, y, run_labels=None, kfold=None, scaling=None,
+    def __init__(self, model, X, y, run_labels=None, scaling=None,
                  scaling_direction='voxels'):
 
         self.model = model
@@ -22,56 +23,82 @@ class Decode(object):
         self.X = X
         self.y = y
         self.run_labels = run_labels
-        self.kfold = None
 
-        if scaling_direction == 'voxels':
-            if scaling == 'standardize':
+        if scaling == 'standardize':
                 scaler = StandardScaler()
-            elif scaling == 'minmax':
-                scaler = MinMaxScaler()
+        elif scaling == 'minmax':
+            scaler = MinMaxScaler()
+        elif scaling == 'center':
+            scaler = StandardScaler(with_std=False)
 
+
+        # scale within each pattern if specified
+        if (scaling_direction == 'pattern') | (scaling_direction == 'both'):
+            self.X = scaler.fit_transform(X.T).T
+        
+        # set model with or without feature scaling 
+        if (scaling_direction == 'voxels') | (scaling_direction == 'both'):
             self.pipeline = Pipeline([('transformer', scaler),
                                       ('estimator', self.model)])
-
-        elif scaling_direction == 'pattern':
-            # transpose so that scaling is done along patterns
-            self.X = scaler.fit_transform(X.T).T
-            self.pipeline = Pipeline([('estimator', self.model)])
-
-
-    def evaluate(self):
-
-        if self.run_labels is None:
-            self.accuracies = cross_val_score(self.pipeline, X=self.X, y=self.y,
-                                              cv=self.kfold)
         else:
-            loro = LeaveOneGroupOut()
-            self.accuracies = cross_val_score(self.pipeline, X=self.X, y=self.y,
-                                              groups=self.run_labels, cv=loro)
+            self.pipeline = Pipeline([('estimator', self.model)]) 
+        
 
-        self.mean_accuracy = np.mean(self.accuracies)
-
-
-    def evaluate_permutation(self, n_permutations=100):
-
-        if self.run_labels is None:
-            results = permutation_test_score(self.pipeline, self.X, self.y,
-                                             groups=self.run_labels,
-                                             cv=self.kfold,
-                                             n_permutations=n_permutations)
+    @staticmethod
+    def get_cross_val_scheme(scheme):
+        if isinstance(scheme, int):
+            return KFold(scheme)
+        elif scheme == 'run':
+            return LeaveOneGroupOut()
+        elif scheme == 'one':
+            return LeaveOneOut()
         else:
-            loro = LeaveOneGroupOut()
-            results = permutation_test_score(self.pipeline, self.X, self.y,
-                                             groups=self.run_labels, cv=loro,
-                                             n_permutations=n_permutations)
-        # score returned from permutation is the average
-        mean_accuracy, self.permutation_scores, self.p_vals = results
+            raise ValueError('Incorrect cross validation scheme specified')
 
-        if not hasattr(self, 'mean_accuracy'):
-            self.mean_accuracy = mean_accuracy
+
+    def evaluate(self, cross_val_scheme='run'):
+
+        self.cross_validator = self.get_cross_val_scheme(cross_val_scheme)
+
+        if cross_val_scheme == 'run':
+            if self.run_labels is None:
+                raise ValueError("run_labels must not be None if 'run' is"
+                                 " selected for cross_val_scheme")
+        else:
+            # ensure that data is not grouped
+            self.run_labels = None
+        
+        self.accuracies = cross_val_score(self.pipeline, X=self.X, y=self.y,
+                                            groups=self.run_labels, 
+                                            cv=self.cross_validator)
+
+        return np.mean(self.accuracies)
+
+
+    def evaluate_permutation(self, cross_val_scheme='run', n_permutations=100):
+
+        if not hasattr(self, 'cross_validator'):
+            self.cross_validator = self.get_cross_val_scheme(cross_val_scheme)
+
+        if cross_val_scheme == 'run':
+            if self.run_labels is None:
+                raise ValueError("run_labels must not be None if 'run' is"
+                                 " selected for cross_val_scheme")
+        else:
+            # ensure that data is not grouped
+            self.run_labels = None
+
+        results = permutation_test_score(self.pipeline, X=self.X, y=self.y,
+                                            groups=self.run_labels, 
+                                            cv=self.cross_validator,
+                                            n_permutations=n_permutations)
+
 
         if not hasattr(self, 'accuracies'):
             self.accuracies = None
+
+        # mean_accuracy, permutation_scores, p_vals
+        return results
 
 
 class GroupDecode(object):

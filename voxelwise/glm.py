@@ -79,7 +79,7 @@ class Model(object):
         self.design = None
 
 
-    def add_design_matrix(self, hrf_model, drift_model=None, high_pass=.01):
+    def add_design_matrix(self, hrf_model, drift_model='cosine', high_pass=.01):
         self.design = make_first_level_design_matrix(
             frame_times=self.frame_times,
             events=self.events,
@@ -128,7 +128,7 @@ def _check_list(x, duplicate=None):
 class BaseGLM(object):
     def __init__(self, imgs, events, regressors=None, mask=None,
                  standardize=False, signal_scaling=False, 
-                 hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
+                 hrf_model='spm + derivative', high_pass=.01, drift_model='cosine', 
                  t_r=2, n_jobs=1, first_level_kws=None):
 
         self.imgs = _check_list(imgs)
@@ -217,7 +217,7 @@ def _compute_frame_times(img, t_r):
 
 def _lss_generator(img, event, regressors, mask=None, standardize=False, 
                    signal_scaling=False, t_r=2, high_pass=.01,
-                   hrf_model='spm + derivative', drift_model=None, 
+                   hrf_model='spm + derivative', drift_model='cosine', 
                    first_level_kws=None):
     """Generate a new first level model for each event of a single image"""
 
@@ -234,7 +234,7 @@ def _lss_generator(img, event, regressors, mask=None, standardize=False,
 class LSS(BaseGLM):
     def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
                  standardize=False, signal_scaling=False, 
-                 hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
+                 hrf_model='spm + derivative', high_pass=.01, drift_model='cosine', 
                  n_jobs=-1, first_level_kws=None):
         super().__init__(imgs, events, regressors, mask, standardize, 
                          signal_scaling, hrf_model, high_pass, drift_model, 
@@ -286,7 +286,7 @@ def _rename_lsa_trial_types(df):
 class LSA(BaseGLM):
     def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
                  standardize=False, signal_scaling=False,
-                 hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
+                 hrf_model='spm + derivative', high_pass=.01, drift_model='cosine', 
                  n_jobs=-1, first_level_kws=None):
         super().__init__(imgs, events, regressors, mask, standardize, 
                          signal_scaling, hrf_model, high_pass, drift_model, 
@@ -334,7 +334,7 @@ class LSA(BaseGLM):
 class LSU(BaseGLM):
     def __init__(self, imgs, events, regressors=None, mask=None, t_r=2,
                  standardize=False, signal_scaling=False,
-                 hrf_model='spm + derivative', high_pass=.01, drift_model=None, 
+                 hrf_model='spm + derivative', high_pass=.01, drift_model='cosine', 
                  n_jobs=-1, first_level_kws=None):
         super().__init__(imgs, events, regressors, mask, standardize, 
                          signal_scaling, hrf_model, high_pass, drift_model, 

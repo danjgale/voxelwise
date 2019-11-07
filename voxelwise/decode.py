@@ -191,7 +191,7 @@ class GroupDecode(object):
                 results = [list(x) for x in list(zip(*results))]
                 self.accuracies_, self.permutation_scores_, self.pval_ = results
                 
-                self._fit_status = True
+                self.__fit_status = True
             
             except Exception as e:
                 print(e)

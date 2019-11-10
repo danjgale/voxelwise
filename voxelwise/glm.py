@@ -211,9 +211,9 @@ class BaseGLM(object):
         return self
 
 
-    def fit_transform(self):
+    def fit_transform(self, param_type='z_score'):
         self.fit()
-        return self.transform()
+        return self.transform(param_type)
 
 
 def _lss_generator(img, event, regressors, mask=None, standardize=False, 

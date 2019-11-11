@@ -51,7 +51,7 @@ class Model(object):
             modelling.  
         """
 
-        self.img = check_niimg(img)
+        self.img = img          
         self.mask = mask        
         
         regressors = _check_file(regressors)          
@@ -166,15 +166,10 @@ class BaseGLM(object):
     @staticmethod
     def fit_glm(model):
 
-        if model.img.get_filename() is None:
-            img_name = 'img'
-        else:
-            img_name = model.img.get_filename()
-
         if model.event_index is not None:
-            print('Fitting event {} for {}'.format(model.event_index, img_name))
+            print('Fitting event {} for {}'.format(model.event_index, model.img))
         else:
-            print('Fitting {}'.format(img_name))
+            print('Fitting {}'.format(model.img))
 
         model.fit()
         return model
@@ -184,7 +179,7 @@ class BaseGLM(object):
 
         if self.n_jobs == 1:
             print('Fitting {} GLMs serially'.format(len(self.models)))
-            self.models = [self.fit_glm(x) for x in self.models]
+            self.models = [self.fit_glm(model) for model in self.models]
             self._fit_status = True
             return self
 
@@ -261,10 +256,14 @@ class LSS(BaseGLM):
         param_maps = []
         list_ = []
         for model in self.models:
+
+            if not isinstance(model.img, str):
+                raise Exception('{} not a string'.format(model.img))
+
             param_maps.append(model.extract_params(param_type))
             # get trial info for the map
             event = model.events.loc[model.event_index]
-            list_.append({'src_img': model.img.get_filename(),
+            list_.append({'src_img': model.img,
                           'trial_type': event['trial_type'],
                           'onset': event['onset']})
         param_index = pd.DataFrame(list_)
@@ -324,8 +323,8 @@ class LSA(BaseGLM):
                 param_maps.append(model.extract_params(param_type,
                                                        contrast_ix=reg))
                 trial_type, onset = model.design.columns[reg].split('___')
-                list_.append({'src_img': model.img.get_filename(),
-                              'trial_type': trial_type, 'onset': onset})
+                list_.append({'src_img': model.img, 'trial_type': trial_type, 
+                              'onset': onset})
 
         param_index = pd.DataFrame(list_)
 
@@ -368,8 +367,7 @@ class LSU(BaseGLM):
                 reg = model.design.columns.get_loc(ev)
                 param_maps.append(model.extract_params(param_type,
                                                        contrast_ix=reg))
-                list_.append({'src_img': model.img.get_filename(),
-                              'trial_type': ev})
+                list_.append({'src_img': model.img, 'trial_type': ev})
 
         param_index = pd.DataFrame(list_)
 

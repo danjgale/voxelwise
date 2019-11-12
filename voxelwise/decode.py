@@ -16,6 +16,8 @@ from sklearn.model_selection import (cross_val_score, LeaveOneGroupOut,
 import nibabel as nib                                     
 from nilearn.input_data import NiftiMasker, MultiNiftiMasker
 
+# from voxelwise.report import make_report
+
 
 def _check_input_data(data, mask_img=None, return_first_element=False):
     if not isinstance(data, list):
@@ -210,12 +212,25 @@ class GroupDecode(object):
         return self.transform()
 
 
-    def get_report(self):
-        pass
+    def make_results(self):
+        if not self.__fit_status:
+            raise NotImplementedError('Decode has not been fit yet')
+
+        list_ = []
+        for i, acc in enumerate(self.accuracies_):
+            list_.append(pd.DataFrame({'subject': i, 'accuracy': acc, 
+                                       'fold': np.arange(acc)}))
+        return pd.concat(list_)
 
 
-    def save(self):
-        pass
+    # def get_report(self):
+    #     df = self.make_results()
+    #     make_report(df)
+
+
+    def save(self, fname):
+        df = self.make_results()
+        df.to_table(fname)
 
 
     def plot(self):

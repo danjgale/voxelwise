@@ -219,7 +219,7 @@ class GroupDecode(object):
         list_ = []
         for i, acc in enumerate(self.accuracies_):
             list_.append(pd.DataFrame({'subject': i, 'accuracy': acc, 
-                                       'fold': np.arange(acc)}))
+                                       'fold': np.arange(len(acc))}))
         return pd.concat(list_)
 
 

@@ -1,6 +1,7 @@
 """Classes for voxel pattern extraction via GLM approaches"""
 
 import multiprocessing
+import warnings
 import numpy as np
 import pandas as pd
 import nibabel as nib
@@ -18,6 +19,15 @@ def _compute_frame_times(img, t_r):
     img = check_niimg(img)
     n_scans = img.shape[3]
     return np.arange(n_scans) * t_r
+
+
+def _check_list(x, duplicate=None):
+    x = x if isinstance(x, list) else [x]
+
+    if duplicate is not None:
+        return x * duplicate
+    else:
+        return x
 
 
 class Model(object):
@@ -127,14 +137,6 @@ class Model(object):
         return param_img
 
 
-def _check_list(x, duplicate=None):
-    x = x if isinstance(x, list) else [x]
-    if duplicate is not None:
-        return x * duplicate
-    else:
-        return x
-
-
 class BaseGLM(object):
     def __init__(self, imgs, events, regressors=None, mask=None,
                  standardize=False, signal_scaling=0, 
@@ -142,6 +144,19 @@ class BaseGLM(object):
                  t_r=2, n_jobs=1, first_level_kws=None):
 
         self.imgs = _check_list(imgs)
+
+        # ensure appropriate types for imgs
+        if not all(isinstance(item, str) for item in self.imgs):
+            if all(isinstance(item, nib.spatialimages.SpatialImage) for item in self.imgs):
+                warnings.warn('`imgs` is a list nibabel images, which will '
+                              'use a much larger amount of memory than '
+                              'providing a list of strings. For LSS this will '
+                              'raise an error.', Warning)
+            else:
+                raise ValueError('`imgs` must be a list of string or '
+                                 'nibabel.spatialimages.SpatialImage (except '
+                                 'LSS, which enforces only strings)')    
+
         self.events = _check_list(events)
 
         if regressors is None:
@@ -238,6 +253,11 @@ class LSS(BaseGLM):
         super().__init__(imgs, events, regressors, mask, standardize, 
                          signal_scaling, hrf_model, high_pass, drift_model, 
                          t_r, n_jobs, first_level_kws)
+
+        if not all(isinstance(item, str) for item in self.imgs):
+            raise ValueError('LSS forces `imgs` to be a list of strings to '
+                             'reduce memory load of generating a large number '
+                             'of GLMs. Nibabel objects are not permitted.')
 
         # one model per trial (many models per image)
         self.models = []

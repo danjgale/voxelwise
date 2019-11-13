@@ -68,7 +68,10 @@ class Model(object):
         self.event_index = event_index
         if self.event_index is not None:
             ev = events.copy()
-            ev.loc[~ev.index.isin([event_index]), 'trial_type'] = 'other'
+            idx = ev.index.isin([event_index])
+            ev.loc[~idx, 'trial_type'] = 'other'
+            # to be used to index contrast during parameter extraction
+            self._event_of_interest = ev.loc[idx, 'trial_type'].values[0]
             self.events = ev
 
         self.t_r = t_r
@@ -260,7 +263,9 @@ class LSS(BaseGLM):
             if not isinstance(model.img, str):
                 raise Exception('{} not a string'.format(model.img))
 
-            param_maps.append(model.extract_params(param_type))
+            # ensure that we get event of LSS using a lookup
+            ev = model.design.columns.get_loc(model._event_of_interest)
+            param_maps.append(model.extract_params(param_type, contrast_ix=ev))
             # get trial info for the map
             event = model.events.loc[model.event_index]
             list_.append({'src_img': model.img,

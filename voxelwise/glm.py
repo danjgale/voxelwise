@@ -204,9 +204,9 @@ class BaseGLM(object):
             if self.n_jobs == -1:
                 self.n_jobs = multiprocessing.cpu_count()
 
-            with multiprocessing.Pool(processes=self.n_jobs, maxtasksperchild=200) as pool:
+            with multiprocessing.Pool(processes=self.n_jobs) as pool:
                 print('Fitting {} GLMs across {} cpus'.format(len(self.models),
-                                                        self.n_jobs))
+                                                              self.n_jobs))
                 self.models = pool.map(self.fit_glm, self.models) 
                 self._fit_status = True
 

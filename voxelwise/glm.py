@@ -75,6 +75,7 @@ class Model(object):
 
         self.events = _check_file(events)
 
+        # for LSS modelling
         self.event_index = event_index
         if self.event_index is not None:
             ev = events.copy()
@@ -89,13 +90,13 @@ class Model(object):
 
         if first_level_kws is not None:
             self.glm = FirstLevelModel(t_r=self.t_r, mask_img=mask, 
-                                    standardize=standardize, 
-                                    signal_scaling=signal_scaling, 
-                                    **first_level_kws)
+                                       standardize=standardize, 
+                                       signal_scaling=signal_scaling, 
+                                       **first_level_kws)
         else:
             self.glm = FirstLevelModel(t_r=self.t_r, mask_img=mask, 
-                                    standardize=standardize, 
-                                    signal_scaling=signal_scaling)
+                                       standardize=standardize, 
+                                       signal_scaling=signal_scaling)
         self.design = None
 
 
@@ -199,21 +200,15 @@ class BaseGLM(object):
             print('Fitting {} GLMs serially'.format(len(self.models)))
             self.models = [self.fit_glm(model) for model in self.models]
             self._fit_status = True
-            return self
+        else:
+            if self.n_jobs == -1:
+                self.n_jobs = multiprocessing.cpu_count()
 
-        if self.n_jobs == -1:
-            self.n_jobs = multiprocessing.cpu_count()
-
-        print('Fitting {} GLMs across {} cpus'.format(len(self.models),
-                                                      self.n_jobs))
-        pool = multiprocessing.Pool(processes=self.n_jobs)
-        try:
-            self.models = pool.map(self.fit_glm, self.models)
-            pool.close()
-            self._fit_status = True
-        except Exception as e:
-            print(e)
-            pool.close()
+            with multiprocessing.Pool(processes=self.n_jobs, maxtasksperchild=200) as pool:
+                print('Fitting {} GLMs across {} cpus'.format(len(self.models),
+                                                        self.n_jobs))
+                self.models = pool.map(self.fit_glm, self.models) 
+                self._fit_status = True
 
         return self
 
@@ -238,6 +233,7 @@ def _lss_generator(img, event, regressors, mask=None, standardize=False,
     if isinstance(event, str):
         event = pd.read_csv(event, sep='\t')
 
+    # iterate through each event and create model
     for ix in event.index.values:
         model = Model(img, event, t_r, regressors, mask, standardize, 
                       signal_scaling, ix, first_level_kws)

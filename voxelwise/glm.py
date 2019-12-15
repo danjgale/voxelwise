@@ -1,6 +1,7 @@
 """Classes for voxel pattern extraction via GLM approaches"""
 
 import multiprocessing
+from joblib import Parallel, delayed
 import warnings
 import numpy as np
 import pandas as pd
@@ -138,6 +139,15 @@ class Model(object):
         return param_img
 
 
+def _fit_glm(model):
+    if model.event_index is not None:
+        print('Fitting event {} for {}'.format(model.event_index, model.img))
+    else:
+        print('Fitting {}'.format(model.img))
+    model.fit()
+    return model
+
+
 class BaseGLM(object):
     def __init__(self, imgs, events, regressors=None, mask=None,
                  standardize=False, signal_scaling=0, 
@@ -183,15 +193,7 @@ class BaseGLM(object):
 
 
     @staticmethod
-    def fit_glm(model):
 
-        if model.event_index is not None:
-            print('Fitting event {} for {}'.format(model.event_index, model.img))
-        else:
-            print('Fitting {}'.format(model.img))
-
-        model.fit()
-        return model
 
 
     def fit(self):
@@ -207,16 +209,8 @@ class BaseGLM(object):
             print('Fitting {} GLMs across {} cpus'.format(len(self.models),
                                                               self.n_jobs))
 
-            pool = multiprocessing.Pool(processes=self.n_jobs)
-            try:
-                self.models = pool.map(self.fit_glm, self.models)
-                pool.close()
-                pool.join()
-                self._fit_status = True
-            except Exception as e:
-                print(e)
-                pool.close()
-                pool.join()
+            self.models = Parallel(self.n_jobs)(delayed(_fit_glm)(x) 
+                                                for x in self.models)
 
         return self
 

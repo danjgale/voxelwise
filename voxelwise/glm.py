@@ -197,17 +197,15 @@ class BaseGLM(object):
         if self.n_jobs == 1:
             print('Fitting {} GLMs serially'.format(len(self.models)))
             self.models = [self.fit_glm(model) for model in self.models]
-            self._fit_status = True
         else:
             if self.n_jobs == -1:
                 self.n_jobs = multiprocessing.cpu_count()
-            
             print('Fitting {} GLMs across {} cpus'.format(len(self.models),
                                                               self.n_jobs))
-
             self.models = Parallel(self.n_jobs)(delayed(_fit_glm)(x) 
                                                 for x in self.models)
-
+        
+        self._fit_status = True
         return self
 
 

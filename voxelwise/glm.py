@@ -192,10 +192,6 @@ class BaseGLM(object):
         self.imgs_for_fit = None
 
 
-    @staticmethod
-
-
-
     def fit(self):
 
         if self.n_jobs == 1:

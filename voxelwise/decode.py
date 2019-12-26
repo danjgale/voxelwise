@@ -1,6 +1,7 @@
 """Decoding tools"""
 
 import multiprocessing
+from joblib import Parallel, delayed
 from functools import partial
 from itertools import repeat
 import numpy as np
@@ -182,22 +183,15 @@ class GroupDecode(object):
             if self.n_jobs == -1:
                 self.n_jobs = multiprocessing.cpu_count()
 
-            pool = multiprocessing.Pool(processes=self.n_jobs)
-            try:
-                args = list(zip(repeat(decoder, len(self.X)), self.X, self.y, 
-                            run_labels))
-                results = pool.starmap(self.decode_subject,  args)
-                pool.close()
+            print('Fitting {} GLMs across {} cpus'.format(len(self.models),
+                                                              self.n_jobs))
 
-                # unpack into separate lists
-                results = [list(x) for x in list(zip(*results))]
-                self.accuracies_, self.permutation_scores_, self.pval_ = results
-                
-                self.__fit_status = True
-            
-            except Exception as e:
-                print(e)
-                pool.close()
+            args = list(zip(repeat(decoder, len(self.X)), self.X, self.y, 
+                            run_labels))
+
+            results = Parallel(self.n_jobs)(delayed(self.decode_subject)(x) for x in args)
+            results = [list(x) for x in list(zip(*results))]
+            self.__fit_status = True
 
 
     def transform(self):

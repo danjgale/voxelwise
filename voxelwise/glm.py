@@ -254,9 +254,9 @@ class LSS(BaseGLM):
 
         # one model per trial (many models per image)
         self.models = []
-        for img, event, reg in zip(self.imgs, self.events, self.regressors):
+        for img, event, reg, mask in zip(self.imgs, self.events, self.regressors, self.mask):
 
-            self.models += _lss_generator(img, event, reg, mask=self.mask, 
+            self.models += _lss_generator(img, event, reg, mask=mask, 
                                           standardize=self.standardize, 
                                           signal_scaling=self.signal_scaling, 
                                           t_r=self.t_r, high_pass=self.high_pass, 

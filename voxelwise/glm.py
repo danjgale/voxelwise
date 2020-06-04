@@ -23,6 +23,7 @@ def _compute_frame_times(img, t_r):
 
 
 def _check_list(x, duplicate=None):
+    """Ensure that object is a list."""
     x = x if isinstance(x, list) else [x]
 
     if duplicate is not None:
@@ -175,7 +176,7 @@ class BaseGLM(object):
         else:
             self.regressors = _check_list(regressors)
         
-        self.mask = mask
+        self.mask = _check_list(mask, duplicate=len(mask))
         self.standardize = standardize
         self.signal_scaling = signal_scaling
         self.hrf_model = hrf_model
@@ -253,9 +254,9 @@ class LSS(BaseGLM):
 
         # one model per trial (many models per image)
         self.models = []
-        for img, event, reg in zip(self.imgs, self.events, self.regressors):
+        for img, event, reg, mask in zip(self.imgs, self.events, self.regressors, self.mask):
 
-            self.models += _lss_generator(img, event, reg, mask=self.mask, 
+            self.models += _lss_generator(img, event, reg, mask=mask, 
                                           standardize=self.standardize, 
                                           signal_scaling=self.signal_scaling, 
                                           t_r=self.t_r, high_pass=self.high_pass, 
@@ -311,11 +312,11 @@ class LSA(BaseGLM):
 
         # one model per image
         self.models = []
-        for img, event, reg in zip(self.imgs, self.events, self.regressors):
+        for img, event, reg, mask in zip(self.imgs, self.events, self.regressors, self.mask):
 
             event = _rename_lsa_trial_types(event)
 
-            model = Model(img, event, self.t_r, reg, self.mask, 
+            model = Model(img, event, self.t_r, reg, mask, 
                           self.standardize, self.signal_scaling, 
                           first_level_kws=self.first_level_kws)
             model.add_design_matrix(self.hrf_model, self.drift_model, 
@@ -359,10 +360,10 @@ class LSU(BaseGLM):
 
         # one model per imge
         self.models = []
-        for img, event, reg in zip(self.imgs, self.events, self.regressors):
+        for img, event, reg, mask in zip(self.imgs, self.events, self.regressors, self.mask):
 
             # event trial_types are kept the same
-            model = Model(img, event, self.t_r, reg, self.mask, 
+            model = Model(img, event, self.t_r, reg, mask, 
                           self.standardize, self.signal_scaling, 
                           first_level_kws=self.first_level_kws)
             model.add_design_matrix(self.hrf_model, self.drift_model, 
